@@ -1,0 +1,25 @@
+Патч скорости исходящих async-ответов для ASFireWire.
+
+Без него камкордеры i.LINK (S100) не отвечают на пакеты драйвера:
+в логе шторм `AT-resp DROPPED ... event=0x03 (evt_missing_ack)`,
+AV/C не работает, Config ROM читается через раз.
+
+Применять из корня склонированного ASFireWire:
+
+    sed -i '' 's/constexpr uint8_t kSpeedS400 = 0x02;/constexpr uint8_t kSpeedS400 = 0x00;/' \
+      ASFWDriver/Async/Tx/ResponseSender.cpp
+
+--- a/ASFWDriver/Async/Tx/ResponseSender.cpp
++++ b/ASFWDriver/Async/Tx/ResponseSender.cpp
+@@ -31,7 +31,7 @@ namespace {
+
+ constexpr uint8_t kSrcBusID = 0;
+-constexpr uint8_t kSpeedS400 = 0x02;
++constexpr uint8_t kSpeedS400 = 0x00;  // S100: ответы принимают все устройства
+ constexpr uint8_t kRetryX = 1;
+ constexpr uint8_t kPriority = 0;
+
+Правильное исправление для upstream — отзеркаливать скорость принятого
+запроса, как это делает Linux (fw_fill_response). Мешает баг 3:
+ARPacketView хранит только младшие 16 бит xferStatus, а скорость приёма
+лежит в битах 21-23 и обрезается. См. docs/asfireware-bugs.md
