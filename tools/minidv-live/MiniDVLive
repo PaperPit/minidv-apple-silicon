@@ -1,0 +1,123 @@
+#!/bin/bash
+#
+#  MiniDV Live — один клик: камера Sony DCR-PC115E (видео через Syphon,
+#  звук через BlackHole) + OBS с уже настроенными источниками.
+#
+#  Что делает:
+#    1. проверяет драйвер FireWire ASFW и наличие BlackHole;
+#    2. останавливает прошлый живой захват (иначе два процесса дерутся за
+#       одно кольцо драйвера) и запускает новый;
+#    3. открывает OBS, если он закрыт;
+#    4. через obs-websocket добавляет в текущую сцену источники
+#       «Sony DCR-PC115E» (Syphon) и «BlackHole 2ch», если их ещё нет.
+#
+#  Лог: ~/Library/Logs/MiniDVLive.log
+#
+set -u
+
+LOG="$HOME/Library/Logs/MiniDVLive.log"
+ASFW="/Applications/ASFW.app"
+ASFW_BIN="$ASFW/Contents/MacOS/ASFW"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RES="$(cd "$HERE/../Resources" && pwd)"
+OBS_WS_CONFIG="$HOME/Library/Application Support/obs-studio/plugin_config/obs-websocket/config.json"
+OBS_WS_PORT=4455
+
+log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG"; }
+# MINIDV_NO_DIALOG=1 — только лог, без окон (удобно для отладки из терминала).
+notify() {
+  [ "${MINIDV_NO_DIALOG:-0}" = "1" ] && return 0
+  /usr/bin/osascript -e "display notification \"$1\" with title \"MiniDV Live\"" >/dev/null 2>&1 || true
+}
+fail() {
+  log "ОШИБКА: $*"
+  [ "${MINIDV_NO_DIALOG:-0}" = "1" ] || /usr/bin/osascript -e "display dialog \"$*\" buttons {\"ОК\"} default button 1 with title \"MiniDV Live\" with icon caution" >/dev/null 2>&1 || true
+  exit 1
+}
+
+mkdir -p "$(dirname "$LOG")"
+log "--- запуск (аргументы: $*) ---"
+
+[ -x "$ASFW_BIN" ] || fail "Не найден $ASFW — установите ASFW.app в /Applications."
+
+# 1. Драйвер FireWire
+if ! /usr/sbin/ioreg -p IOService -w0 2>/dev/null | /usr/bin/grep -q "ASFWDriver"; then
+  fail "Драйвер ASFW не загружен. Проверьте: systemextensionsctl list (должно быть net.mrmidi.ASFW.ASFWDriver [activated enabled])."
+fi
+
+# 2. Приёмник звука
+AUDIO=1
+if ! "$ASFW_BIN" --list-audio-devices 2>/dev/null | /usr/bin/grep -q "BlackHole"; then
+  AUDIO=0
+  log "BlackHole не найден — запускаю только видео (звук в OBS не попадёт)"
+fi
+
+# 3. WebSocket-сервер OBS (нужен, чтобы добавлять источники)
+if [ -f "$OBS_WS_CONFIG" ]; then
+  if /usr/bin/grep -q '"server_enabled": false' "$OBS_WS_CONFIG"; then
+    /bin/cp -n "$OBS_WS_CONFIG" "$OBS_WS_CONFIG.bak-minidv" 2>/dev/null || true
+    /usr/bin/sed -i '' 's/"server_enabled": false/"server_enabled": true/' "$OBS_WS_CONFIG" 2>/dev/null \
+      && log "включил WebSocket-сервер OBS (если OBS был открыт — потребуется перезапустить его один раз)"
+  fi
+else
+  log "нет конфига obs-websocket — источники придётся добавлять вручную"
+fi
+
+# 4. Прошлый живой захват — вниз
+if /usr/bin/pkill -f -- "--syphon" 2>/dev/null; then
+  log "остановлен прошлый живой захват"
+  sleep 2
+fi
+
+# 5. Камера
+if [ "$AUDIO" = "1" ]; then
+  /usr/bin/open -n "$ASFW" --args --syphon --audio-device "BlackHole 2ch"
+else
+  /usr/bin/open -n "$ASFW" --args --syphon --no-audio
+fi
+log "ASFW запущен в живом режиме (звук: $([ "$AUDIO" = 1 ] && echo BlackHole || echo выключен))"
+
+sleep 3
+if ! /usr/bin/pgrep -f -- "--syphon" >/dev/null; then
+  fail "Камера не поднялась: процесс ASFW --syphon не найден. Смотрите $LOG и ~/Library/Logs/ASFW-install.log"
+fi
+
+# 6. OBS
+if /usr/bin/pgrep -x OBS >/dev/null; then
+  log "OBS уже запущен"
+else
+  log "запускаю OBS"
+  /usr/bin/open -a OBS >/dev/null 2>&1 || fail "OBS не найден в /Applications."
+fi
+
+# ждём порт WebSocket (не дольше 20 с)
+for _ in $(seq 1 40); do
+  if (exec 3<>"/dev/tcp/127.0.0.1/$OBS_WS_PORT") 2>/dev/null; then
+    exec 3<&- 2>/dev/null || true
+    break
+  fi
+  sleep 0.5
+done
+
+# 7. Источники в OBS
+find_node() {
+  for candidate in "$(command -v node 2>/dev/null)" "$HOME/.local/bin/node" /opt/homebrew/bin/node /usr/local/bin/node; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then echo "$candidate"; return 0; fi
+  done
+  return 1
+}
+
+NODE="$(find_node || true)"
+if [ -z "$NODE" ]; then
+  log "node не найден — источники в OBS не настроены автоматически"
+  notify "Камера и звук запущены. Источники в OBS добавьте вручную."
+elif "$NODE" "$RES/obs-sources.js" >>"$LOG" 2>&1; then
+  log "источники OBS готовы"
+  notify "Камера и звук запущены, OBS настроен"
+else
+  log "не удалось настроить источники автоматически (подробности выше в логе)"
+  notify "Камера и звук запущены. Источники в OBS добавьте вручную."
+fi
+
+log "--- готово ---"
+exit 0

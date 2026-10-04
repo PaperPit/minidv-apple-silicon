@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiniDV на Apple Silicon: стек, оцифровка и живой режим — камера и звук по FireWire</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212a; --line:#2a2f3a;
+    --tx:#e6e8ee; --dim:#a0a7b4; --acc:#6aa8ff; --ok:#4ec98a; --warn:#f0b23c; --bad:#f0685f;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: light){
+    :root{--bg:#f6f7f9;--panel:#fff;--panel2:#f0f2f6;--line:#dfe3ea;--tx:#151821;--dim:#5b6472;--acc:#1a63d8;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;padding:0 20px 90px}
+  .wrap{max-width:980px;margin:0 auto}
+  header{padding:44px 0 8px}
+  h1{font-size:32px;line-height:1.15;margin:0 0 8px;letter-spacing:-.025em}
+  .sub{color:var(--dim);margin:0;font-size:15.5px}
+  h2{font-size:22px;margin:44px 0 14px;letter-spacing:-.015em;border-top:1px solid var(--line);padding-top:26px}
+  h3{font-size:17px;margin:26px 0 8px;letter-spacing:-.01em}
+  h4{font-size:14.5px;margin:18px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:17px 20px;margin:15px 0}
+  .good{border-left:4px solid var(--ok)} .mid{border-left:4px solid var(--warn)}
+  .bad{border-left:4px solid var(--bad)} .info{border-left:4px solid var(--acc)}
+  code,pre{font-family:var(--mono);font-size:13px}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:13px 15px;overflow-x:auto;margin:10px 0;line-height:1.5}
+  code:not(pre code){background:var(--panel2);padding:1.5px 6px;border-radius:5px;border:1px solid var(--line);font-size:12.8px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em}
+  td.n{font-family:var(--mono);font-size:12.5px;white-space:nowrap}
+  a{color:var(--acc)} ol,ul{padding-left:22px} li{margin:6px 0}
+  .tag{display:inline-block;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+    padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--dim);background:var(--panel2);
+    vertical-align:middle;margin-left:8px}
+  .tag.ok{color:var(--ok)} .tag.warn{color:var(--warn)} .tag.bad{color:var(--bad)} .tag.acc{color:var(--acc)}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 22px;margin:24px 0 8px}
+  .toc ol{margin:6px 0;padding-left:20px} .toc li{margin:3px 0;font-size:14.5px}
+  .chain{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:14px 0}
+  .chain .n{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:7px 11px;font-size:13px}
+  .chain .a{color:var(--dim);font-size:15px}
+  .kv{display:grid;grid-template-columns:230px 1fr;gap:5px 18px;font-size:14.5px}
+  .kv div:nth-child(odd){color:var(--dim)}
+  .foot{color:var(--dim);font-size:13px;margin-top:44px;border-top:1px solid var(--line);padding-top:18px}
+  hr{border:0;border-top:1px solid var(--line);margin:26px 0}
+  .stage{border-left:3px solid var(--acc);padding-left:16px;margin:18px 0}
+  .stage h3{margin-top:0}
+  @media(max-width:640px){.kv{grid-template-columns:1fr}.kv div:nth-child(odd){margin-top:8px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<header>
+<h1>MiniDV → Apple Silicon</h1>
+<p class="sub">Рабочий стек, методика архивной оцифровки и живой режим: камера и звук в реальном времени.<br>
+Sony DCR-PC115E · MacBook Air M1 · macOS 26.5.2 Tahoe · ASFireWire · обновлено 4 октября 2026</p>
+<p class="sub" style="margin-top:10px">Проект и патч к ASFireWire: <a href="https://github.com/PaperPit/minidv-apple-silicon">github.com/PaperPit/minidv-apple-silicon</a>
+· English README: <a href="https://github.com/PaperPit/minidv-apple-silicon/blob/main/README.md">README.md</a></p>
+</header>
+
+<div class="card good">
+<b>Статус на 4 октября 2026.</b> Mac, в котором Apple полностью удалила стек FireWire, работает и как
+станция оцифровки, и как живой источник: пользовательский DriverKit-драйвер, камкордер опознан по шине,
+с ленты снята побитовая копия (<b>1895 кадров, 1 потерянный, 0 переполнений кольца, размер делится
+на 144 000 без остатка</b>), а живой DV идёт в OBS и браузер — видео через Syphon, звук прямо из
+DV-потока в BlackHole, оба канала сверены с FFmpeg побитово. Ярлык поднимает всё это одним кликом.
+Документ фиксирует, что для этого понадобилось, — чтобы через полгода не собирать заново по памяти.
+</div>
+
+<div class="toc">
+<b>Содержание</b>
+<ol>
+<li>Стек: железо, софт, идентификаторы</li>
+<li>Что именно было сделано — воспроизводимая последовательность</li>
+<li>Найденные баги и наблюдения (для upstream и для себя)</li>
+<li>Методика оцифровки: как делать правильно</li>
+<li>Живой режим: камера и звук в реальном времени</li>
+<li>Состояние системы, обслуживание и откат</li>
+<li>Шпаргалка команд</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════ 1 ═══════════════════════════════ -->
+<h2>1. Стек</h2>
+
+<h3>Физическая цепочка</h3>
+<div class="chain">
+  <span class="n">Sony DCR-PC115E<br><small>i.LINK 4-pin, S100</small></span><span class="a">→</span>
+  <span class="n">кабель FW400 4-pin ↔ FW800 9-pin</span><span class="a">→</span>
+  <span class="n">Apple TB→FireWire<br><small>A1463, FW 5.6</small></span><span class="a">→</span>
+  <span class="n">Apple TB3→TB2<br><small>A1790</small></span><span class="a">→</span>
+  <span class="n">MacBook Air M1<br><small>Thunderbolt 3 / USB4</small></span>
+</div>
+<p>Порядок сборки жёсткий: <b>A1790 в Mac, в него A1463, в него FireWire-кабель</b>. A1790 однонаправленный
+(TB2-устройство → TB3-хост), наоборот не работает. Внутри A1463 — PCIe-контроллер OHCI 1394, который
+пробрасывается в систему через Thunderbolt-туннель.</p>
+
+<h3>Точные идентификаторы</h3>
+<table>
+<thead><tr><th>Компонент</th><th>Значение</th><th>Где увидеть</th></tr></thead>
+<tbody>
+<tr><td>Mac</td><td class="n">MacBookAir10,1 / J313AP / T8103 (M1)</td><td class="n">ioreg -p IOService</td></tr>
+<tr><td>macOS</td><td class="n">26.5.2 (25F84), Darwin 25.5.0, arm64</td><td class="n">sw_vers</td></tr>
+<tr><td>Xcode</td><td class="n">26.6 (17F113)</td><td class="n">xcodebuild -version</td></tr>
+<tr><td>OHCI-контроллер</td><td class="n">LSI/Agere FW643 «TrueFire»<br>PCI 11c1:5901 → IOPCIMatch 0x590111c1</td><td class="n">ioreg | grep 11c1</td></tr>
+<tr><td>Thunderbolt-линк</td><td class="n">Bus 0, Route String 1, 10 Гбит/с, прошивка адаптера 5.6</td><td class="n">system_profiler SPThunderboltDataType</td></tr>
+<tr><td>Локальный узел</td><td class="n">node 0 / 0xFFC0, S800</td><td>отчёт диагностики ASFW</td></tr>
+<tr><td>Камера на шине</td><td class="n">node 1 / 0xFFC1, <b>S100</b>, root + IRM, contender</td><td>отчёт диагностики ASFW</td></tr>
+<tr><td>GUID камеры</td><td class="n">0x0800460101DBB1F0</td><td>вкладка Device Discovery</td></tr>
+<tr><td>Vendor OUI</td><td class="n">0x080046 = Sony</td><td>Config ROM</td></tr>
+<tr><td>Unit Spec ID</td><td class="n">0x00A02D (1394 TA / AV/C)</td><td>Config ROM</td></tr>
+<tr><td>Класс устройства</td><td class="n">TA 61883 (AMDTP)</td><td>Discovery</td></tr>
+<tr><td>Драйвер</td><td class="n">ASFireWire, commit 9055449, VERSION 0.2.0-audio<br>bundle net.mrmidi.ASFW.ASFWDriver (0.2.0/2)</td><td class="n">systemextensionsctl list</td></tr>
+</tbody>
+</table>
+
+<h3>Состояние системы, необходимое для работы</h3>
+<div class="card mid">
+<div class="kv">
+<div>SIP</div><div><b>Отключён</b> (<code>csrutil disable</code> из Recovery). Сборка ad-hoc-подписанная, без нотаризации — иначе AMFI её не запустит.</div>
+<div>Developer mode</div><div><b>Включён</b> (<code>sudo systemextensionsctl developer on</code>).</div>
+<div>Подпись</div><div>Ad-hoc (<code>codesign --sign -</code>), entitlements встроены скриптом <code>sign.sh</code>. Team ID отсутствует, поэтому удаление — <code>systemextensionsctl uninstall - &lt;bundle&gt;</code> с дефисом вместо ID.</div>
+<div>Entitlements dext</div><div><code>driverkit</code>, <code>driverkit.transport.pci</code>, <code>driverkit.transport.pci.bridge</code>, <code>driverkit.family.audio</code></div>
+<div>Entitlements app</div><div><code>system-extension.install</code>, <code>driverkit.userclient-access</code></div>
+<div>SCSI HBA</div><div><b>Не собирать.</b> Флаг <code>--scsi</code> при отсутствии SBP-2-устройства на шине приводит к панике ядра в бут-луп. В нашей сборке персоналии нет.</div>
+</div>
+</div>
+
+<h3>Параметры сигнала</h3>
+<table>
+<thead><tr><th>Параметр</th><th>Значение</th><th>Следствие</th></tr></thead>
+<tbody>
+<tr><td>Формат</td><td class="n">DV25, PAL 625/50</td><td>кадр 720×576, 25 к/с, чересстрочный</td></tr>
+<tr><td>Цвет</td><td class="n">yuv420p, SAR 16:15, DAR 4:3</td><td>в квадратных пикселях — 768×576</td></tr>
+<tr><td>Порядок полей</td><td class="n">bottom field first</td><td><code>setfield=bff</code>, <code>bwdif=parity=bff</code></td></tr>
+<tr><td>Кадр на диске</td><td class="n">144 000 байт (300 DIF-пакетов × 480 Б)</td><td>размер файла обязан делиться нацело</td></tr>
+<tr><td>Поток</td><td class="n">≈3,6 МБ/с → 12,96 ГБ/час</td><td>час ленты ≈ 13 ГБ</td></tr>
+<tr><td>Изохронный канал</td><td class="n">63 (широковещательный)</td><td>камкордеры Sony вещают на нём по умолчанию</td></tr>
+<tr><td>Пакетов в секунду</td><td class="n">8000 циклов, из них 7500 с данными</td><td>300 × 25 = 7500 — контрольная арифметика</td></tr>
+<tr><td>Звук</td><td class="n">12 бит / 32 кГц, 2 стереопары</td><td>ST1 — микрофон (−25 дБ), ST2 пуста (−91 дБ)</td></tr>
+<tr><td>Метаданные</td><td class="n">таймкод ленты сохраняется</td><td>в примере <code>00:04:22:08</code></td></tr>
+</tbody>
+</table>
+
+<!-- ═══════════════════════════════ 2 ═══════════════════════════════ -->
+<h2>2. Что было сделано</h2>
+
+<p>Последовательность воспроизводима с нуля на любом Apple Silicon Mac с macOS 26 и таким же адаптером.</p>
+
+<div class="stage">
+<h3>Шаг 1. Диагностика: понять, что именно сломано</h3>
+<p>На Tahoe бандлы <code>IOFireWireFamily.kext</code>, <code>IOFireWireAVC.kext</code>, <code>AppleFWOHCI.kext</code>
+физически лежат в <code>/System/Library/Extensions/</code> — и это сбивает с толку. Решающая проверка:</p>
+<pre>kmutil inspect --bundle-path /System/Library/Extensions/IOFireWireFamily.kext | grep -i fire
+kmutil showloaded | grep -i IOFire
+ioreg -p IOService -w0 | grep -i "11c1"</pre>
+<p>В boot kernel collection <b>нет ни одного FireWire-расширения</b> — на Apple Silicon код системных kext-ов
+живёт там, а не в бандле. Бандлы остались пустыми скорлупками с Info.plist и userspace-плагинами.
+При этом контроллер <code>pci11c1,5901</code> исправно виден как <code>IOPCIDevice</code> — то есть железо
+работает, не хватает только драйвера.</p>
+<p><small>Ложный след: <code>AppleFireStormErrorHandler</code> в выводе <code>kextstat | grep fire</code> — это
+обработчик ошибок производительных ядер M1, к FireWire отношения не имеет.</small></p>
+</div>
+
+<div class="stage">
+<h3>Шаг 2. Сборка ASFireWire</h3>
+<pre>mkdir -p ~/Developer &amp;&amp; cd ~/Developer
+git clone https://github.com/mrmidi/ASFireWire.git
+cd ASFireWire
+
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -license accept
+
+./build.sh --config Release     # БЕЗ --scsi
+./sign.sh</pre>
+<p><code>build.sh</code> собирает намеренно без подписи; <code>sign.sh</code> затем ad-hoc-подписывает
+и <code>.app</code>, и вложенный <code>.dext</code> нужными entitlements и сам проверяет, что они встроились.
+Готовых релизов у проекта нет — только исходники.</p>
+</div>
+
+<div class="stage">
+<h3>Шаг 3. Подготовка системы</h3>
+<p>Recovery (зажать кнопку питания → Параметры → Утилиты → Терминал):</p>
+<pre>csrutil disable</pre>
+<p>После перезагрузки:</p>
+<pre>csrutil status                          # System Integrity Protection status: disabled.
+sudo systemextensionsctl developer on</pre>
+</div>
+
+<div class="stage">
+<h3>Шаг 4. Установка</h3>
+<pre>cp -R build/DerivedData/Build/Products/Release/ASFW.app /Applications/
+open /Applications/ASFW.app</pre>
+<p>Кнопка <b>Install</b> живёт в тулбаре окна справа сверху, горячая клавиша <b>⌘I</b>.
+Расширение уйдёт в состояние <code>activated waiting for user</code> — его нужно вручную одобрить:
+<b>Системные настройки → Основные → Объекты входа и расширения → Расширения драйверов</b>.</p>
+<p>Проверка:</p>
+<pre>systemextensionsctl list        # ждём [activated enabled]
+ioreg -p IOService -w0 -l -r -n "pci11c1,5901" -d 2 | grep -Ei "ASFWDriver|IOUserServerCDHash"</pre>
+<p>Под PCI-нодой должен появиться дочерний <code>ASFWDriver</code>. <code>IOUserServerCDHash</code> — надёжный
+способ убедиться, что загружена именно свежая сборка, а не закешированная старая: версия бандла
+при пересборке не меняется, а хеш меняется всегда.</p>
+<div class="card mid">
+<b>Грабли.</b> При переустановке старое расширение зависает в состоянии
+<code>terminating for uninstall but still running</code> и держит слот — новое активируется, но контроллер
+может остаться за старым процессом. Лечится перезагрузкой; после неё в списке должна остаться
+ровно одна запись.
+</div>
+</div>
+
+<div class="stage">
+<h3>Шаг 5. Патч скорости ответов</h3>
+<p>Без него AV/C не работает вообще, а Config ROM читается через раз. Подробности — в разделе 3.</p>
+<pre>sed -i '' 's/constexpr uint8_t kSpeedS400 = 0x02;/constexpr uint8_t kSpeedS400 = 0x00;  \/\/ S100 responses/' \
+  ASFWDriver/Async/Tx/ResponseSender.cpp
+./build.sh --config Release &amp;&amp; ./sign.sh</pre>
+<p>Дальше — снять старое расширение, заменить app, поставить заново, перезагрузиться:</p>
+<pre>systemextensionsctl uninstall - net.mrmidi.ASFW.ASFWDriver
+rm -rf /Applications/ASFW.app
+cp -R build/DerivedData/Build/Products/Release/ASFW.app /Applications/
+open /Applications/ASFW.app        # ⌘I, одобрить, перезагрузиться</pre>
+</div>
+
+<div class="stage">
+<h3>Шаг 6. Захват</h3>
+<p>Камера: питание от сети, кассета внутри, POWER → <b>VCR</b>, в меню <code>VCR SET → A/V→DV OUT = OFF</code>.
+Кабель подключать только при выключенной камере.</p>
+<p>В ASFW: <b>Controller Status → Connect</b>, затем вкладка <b>DV Capture</b>, канал <code>63</code>,
+выбрать выходной файл, <b>Start Capture</b>, и нажать <b>Play</b> — в приложении или пальцем на камере.
+AV/C для захвата не требуется: поток идёт по изохронному каналу независимо от команд управления.</p>
+</div>
+
+<!-- ═══════════════════════════════ 3 ═══════════════════════════════ -->
+<h2>3. Найденные баги и наблюдения</h2>
+
+<h3>Баг 1 — жёстко зашитая скорость S400 в исходящих ответах <span class="tag ok">исправлен</span></h3>
+<p><code>ASFWDriver/Async/Tx/ResponseSender.cpp</code>, строки 34 и 42:</p>
+<pre>constexpr uint8_t kSpeedS400 = 0x02;
+...
+uint32_t BuildQ0(uint8_t tLabel, uint8_t tCode) {
+    return (static_cast&lt;uint32_t&gt;(kSrcBusID &amp; 0x01) &lt;&lt; 23) |
+           (static_cast&lt;uint32_t&gt;(kSpeedS400 &amp; 0x07) &lt;&lt; 16) |   // ← всегда S400
+           ...</pre>
+<p>Исходящие async-запросы используют скорость из speed map (драйвер корректно опускает узел до S100
+после двух таймаутов), а ответы — нет. Камкордер i.LINK работает только на S100 и физически не принимает
+пакеты на S400. Результат — шторм <code>AT-resp DROPPED ... event=0x03 (evt_missing_ack)</code> и полный
+развал AV/C.</p>
+<p><b>Почему баг не всплывал раньше:</b> всё тестовое железо автора (Apogee Duet, Focusrite Saffire,
+PreSonus StudioLive, Midas Venice) — устройства S400. Камкордер S100 попал на этот драйвер впервые.</p>
+<p><b>Временное исправление:</b> отвечать всегда на S100. Ответы — мелкие пакеты, потеря скорости на них
+не значима, а S100 принимают все устройства без исключения.</p>
+<p><b>Правильное исправление для upstream:</b> отзеркаливать скорость принятого запроса, как это делает
+Linux (<code>fw_fill_response</code>). Мешает баг 3.</p>
+
+<h3>Баг 2 — AT-completion не сопоставляется для блочных записей <span class="tag bad">открыт</span></h3>
+<p>После исправления бага 1 транзакции на проводе проходят полностью — это видно в трассе диагностики:</p>
+<pre>TX ATReq 34 WrBlock S100 0xFFC0→0xFFC1 0xFFFFF0000B00  complete   ← AV/C-команда в FCP_COMMAND
+RX ARReq 34 WrBlock      0xFFC1→0xFFC0 0xFFFFF0000D00  Ack 0x12   ← ответ камеры через 2.9 мс
+TX ATRsp 34 WrResp S100  0xFFC0→0xFFC1                 complete   ← наш write-response</pre>
+<p>Но драйвер этого не видит и через 750 мс помечает транзакцию как <code>TimedOut</code>:</p>
+<pre>OnTimeout: tLabel=34 state=ATPosted ackCode=0x0
+❌ FAILED: AT completion never arrived after 2 attempts
+[AVC] AVCUnit: UNIT_INFO failed: result=8</pre>
+<p>Квадлетные чтения (Config ROM) сопоставляются нормально — ломаются именно блочные записи с payload.
+Подозреваемое место: <code>ATContextBase::ExtractCompletionTLabel</code>, где индекс дескриптора-заголовка
+вычисляется как <code>(headIndex + capacity - 2) % capacity</code> — для пакетов с payload геометрия
+дескрипторов другая.</p>
+<p><b>Практическое следствие:</b> AV/C-команды до камеры доходят и выполняются, интерфейс просто
+рапортует «no FCP response». Кнопки Play/Stop/Rewind, скорее всего, работают, несмотря на сообщение.
+Для захвата потока это вообще не критично.</p>
+
+<h3>Баг 3 — скорость принятого пакета теряется при разборе <span class="tag warn">блокирует правильный фикс бага 1</span></h3>
+<p>В OHCI скорость приёма лежит в битах 21–23 трейлерного <code>xferStatus</code>
+(Linux: <code>p.speed = (status &gt;&gt; 21) &amp; 0x7</code>). В ASFireWire структура
+<code>ARPacketView</code> (<code>ASFWDriver/Async/Rx/PacketRouter.hpp</code>) хранит
+<code>uint16_t xferStatus</code> — младшие 16 бит. Биты скорости отрезаются, отзеркалить скорость запроса
+в ответе невозможно. В <code>PacketRouter.cpp:223</code> при этом стоит заглушка
+<code>event.speed = 0; // S100</code>.</p>
+<p>Правильный фикс: расширить поле до 32 бит либо добавить <code>uint8_t speed</code> в
+<code>ARPacketView</code> и использовать его в <code>ResponseSender::BuildQ0</code>.</p>
+
+<h3>Наблюдение — gap count 44 при оптимальном 5</h3>
+<pre>Gap Count: 44        Expected Gap: 5
+Decision: SuppressedByRoleMode
+Configured Role Mode: Client Only (no BM/IRM)
+BM Node: none</pre>
+<p>Драйвер сознательно не претендует на роль Bus Manager, поэтому никто не оптимизирует gap count.
+Для шины из двух узлов 44 — это заметно раздутые арбитражные паузы. На нашем захвате это не помешало
+(0 переполнений кольца), но при длинных лентах или более загруженной шине сюда стоит вернуться первым делом.
+Цикл-мастером выступает камера — она root и CMC-capable, <code>Remote Cycle Continuity: Yes</code>.</p>
+
+<h3>Что имеет смысл отправить в upstream</h3>
+<ul>
+<li>Патч бага 1 с трассой транзакций как доказательством.</li>
+<li>Описание бага 2 с той же трассой — там видно, что проблема в сопоставлении, а не на проводе.</li>
+<li>Баг 3 как первопричину, мешающую сделать баг 1 правильно.</li>
+<li>Отчёт об успешном DV-захвате: модель камеры, GUID, конфигурация, счётчики. В README автор прямо
+просит такие репорты, и камкордер на этом драйвере до сих пор никто не проверял.</li>
+</ul>
+
+<!-- ═══════════════════════════════ 4 ═══════════════════════════════ -->
+<h2>4. Методика оцифровки</h2>
+
+<h3>4.1 Подготовка лент</h3>
+<ul>
+<li>Дайте кассетам сутки полежать в комнате, если они хранились в холоде или сырости — конденсат убивает и ленту, и головки.</li>
+<li>Перед первой кассетой прогоните чистящую кассету. Дальше — каждые 8–10 часов записи.</li>
+<li><b>Оцифровывайте той же камерой, которой снимали.</b> Юстировка головок у каждого аппарата своя, «родная» камера читает свою ленту заметно чище.</li>
+<li>Не перематывайте на максимальной скорости до упора — это главный источник зажёвывания. Если нужна перемотка, доводите до конца плавно.</li>
+<li>Лента скрипит, слышен неровный ход, видно осыпание — не гоняйте туда-сюда. Ловите один чистый проход, второго может не быть.</li>
+<li>Сдвиньте на кассете защиту от записи в положение SAVE перед оцифровкой.</li>
+</ul>
+
+<h3>4.2 Настройка камеры</h3>
+<div class="card info">
+<div class="kv">
+<div>Питание</div><div>Только сетевой адаптер. Просадка на батарее в середине кассеты = обрыв захвата.</div>
+<div>Режим</div><div>POWER → <b>VCR</b></div>
+<div>Меню</div><div><code>VCR SET → A/V→DV OUT = OFF</code> — это сквозной аналог→DV, при воспроизведении ленты он должен быть выключен</div>
+<div>Автовыключение</div><div><code>OTHERS → A.SHUT OFF → NEVER</code>, иначе камера уснёт на паузе и уронит шину</div>
+<div>Подключение</div><div>Кабель втыкать <b>только при выключенной камере</b>. Горячее подключение FireWire — классический способ сжечь порт i.LINK</div>
+<div>LP-режим</div><div>Читается хуже SP. Если лента писалась в LP — ожидайте больше выпадений, это свойство формата</div>
+</div>
+</div>
+
+<h3>4.3 Процесс</h3>
+<ol>
+<li>Запустите <code>caffeinate -d -i</code> в отдельном окне терминала — ноутбук не должен уснуть посреди кассеты.</li>
+<li>Убедитесь, что свободного места хватает: <b>13 ГБ на час ленты</b>. 60-минутная кассета SP ≈ 13 ГБ.</li>
+<li>ASFW → <b>Controller Status → Connect</b> → вкладка <b>DV Capture</b>.</li>
+<li>Канал <code>63</code>. Выберите выходной файл с осмысленным именем (см. 4.5).</li>
+<li><b>Start Capture</b>, затем Play. Захват идёт в реальном времени: час ленты = час ожидания, ускорить нельзя.</li>
+<li>Следите за счётчиками (см. 4.4). Не сворачивайте окно надолго — приложение вычитывает кольцо на 30 Гц.</li>
+<li>По окончании — <b>Stop Capture</b>. Только после этого файл закрыт и валиден.</li>
+</ol>
+
+<h3>4.4 Контроль качества во время захвата</h3>
+<table>
+<thead><tr><th>Счётчик</th><th>Норма</th><th>Если не так</th></tr></thead>
+<tbody>
+<tr><td>System</td><td class="n">PAL (625/50)</td><td>NTSC на европейской ленте — разбирайтесь до продолжения</td></tr>
+<tr><td>Isoch packets seen</td><td class="n">≈8000/с</td><td>0 → камера не вещает: проверьте, идёт ли лента, и не занят ли IR-контекст аудио</td></tr>
+<tr><td>DV source packets</td><td class="n">7500/с (300 на кадр)</td><td>сильно меньше — потери на шине</td></tr>
+<tr><td>Non-DV packets</td><td class="n">0</td><td>&gt;0 → фильтр CIP не узнаёт поток, пришлите <code>Last rejected</code> в issue</td></tr>
+<tr><td>Frames</td><td class="n">+25/с</td><td>отставание = потери</td></tr>
+<tr><td>Dropped frames</td><td class="n">0, допустимо единицы</td><td>растёт постоянно → изохронный приём не справляется</td></tr>
+<tr><td>Ring overruns</td><td class="n">0</td><td>&gt;0 → приложение не успевает вычитывать кольцо (буфер всего 1,1 с)</td></tr>
+<tr><td>Written</td><td class="n">≈3,6 МБ/с</td><td>арифметика: <code>кадры × 144000 = байты</code></td></tr>
+</tbody>
+</table>
+<p><small>Эталон нашего захвата: 1895 кадров, 1 dropped, 621 186 isoch, 568 554 DV source, 0 non-DV,
+0 overruns, 272 880 000 байт. 568554 / 1896 = ровно 300 пакетов на кадр.</small></p>
+
+<h3>4.5 Проверка результата</h3>
+<pre>F=~/Documents/tape01.dv
+python3 -c "import os,sys;s=os.path.getsize(sys.argv[1]);print(s,'bytes |',s/144000,'frames | remainder',s%144000)" "$F"
+ffprobe -hide_banner "$F"</pre>
+<p><b>Остаток от деления обязан быть 0.</b> Это главный признак того, что кадры выровнены и файл не бит.
+ffprobe должен показать <code>dvvideo, yuv420p, 720x576 [SAR 16:15 DAR 4:3], 25 tbr</code> и звуковые дорожки.</p>
+<p>Проверить, есть ли что-то на второй звуковой паре (12-битный режим пишет две, вторая обычно пуста):</p>
+<pre>ffmpeg -hide_banner -i "$F" -map 0:a:0 -af volumedetect -f null - 2>&amp;1 | grep mean_volume
+ffmpeg -hide_banner -i "$F" -map 0:a:1 -af volumedetect -f null - 2>&amp;1 | grep mean_volume</pre>
+<p>Уровень около <code>-91 dB</code> = дорожка пустая.</p>
+
+<h3>4.6 Именование и хранение</h3>
+<p>Мастер <code>.dv</code> — это точная копия ленты. Его не редактируют, не пережимают и не удаляют никогда;
+всё остальное пересоздаётся из него одной командой.</p>
+<pre>2003-08_семейный-отпуск_кассета-04.dv
+2003-08_семейный-отпуск_кассета-04.dv.md      ← заметки: что на ленте, состояние, число dropped</pre>
+<p>Правило 3-2-1: три копии, на двух разных носителях, одна вне дома. 13 ГБ на час — это дорого в облаке,
+но дешевле, чем потерять всё. Таймкод ленты сохраняется в метаданных файла, так что порядок и позиции
+восстановимы.</p>
+
+<h3>4.7 Производные файлы</h3>
+<h4>Мастер для монтажа — ProRes HQ, обе звуковые дорожки, поля сохранены</h4>
+<pre>ffmpeg -i "$F" -map 0 -c:v prores_ks -profile:v 3 -vf "setfield=bff" \
+  -c:a pcm_s16le tape01_prores.mov</pre>
+
+<h4>Для просмотра — деинтерлейс в 50p, квадратный пиксель 768×576</h4>
+<pre>ffmpeg -i "$F" -filter_complex \
+  "[0:v]bwdif=mode=send_field:parity=bff,scale=768:576:flags=lanczos,setsar=1[v]" \
+  -map "[v]" -map 0:a:0 -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p \
+  -c:a aac -b:a 192k tape01_view.mp4</pre>
+<div class="card info">
+<b>Почему 768, а не 1024.</b> PAL DV имеет неквадратный пиксель. При <code>SAR 16:15</code> и кадре 4:3
+правильный размер в квадратных пикселях — 720 × 16/15 = <b>768×576</b>. Ширина 1024 применяется только
+к анаморфному 16:9 материалу. Если ошибиться, ffmpeg компенсирует через <code>SAR 3:4</code> и картинка
+всё равно покажется верно, но вы зря потратите битрейт на растянутый кадр.
+</div>
+<p><code>bwdif=mode=send_field</code> даёт 50 кадров в секунду — движение остаётся таким же плавным,
+как на ленте. Деинтерлейс применяется <b>только к копии для просмотра</b>; мастер и монтажный ProRes
+остаются чересстрочными.</p>
+
+<!-- ═══════════════════════════════ 5 ═══════════════════════════════ -->
+<h2>5. Живой режим: камера и звук в реальном времени</h2>
+
+<div class="card good">
+<b>Работает целиком.</b> Камкордер в режиме <b>CAMERA</b> (или на воспроизведении ленты) отдаёт живой DV
+по i.LINK; видео уходит в OBS через Syphon, звук — прямо из DV-потока в BlackHole, оттуда его берут
+OBS, Chrome и любые приложения. Оба канала сверены с FFmpeg побитово. Одним кликом по ярлыку
+поднимается всё: камера, звук, источники в OBS и виртуальная камера для браузера.
+</div>
+
+<h3>5.1 Цепочка целиком</h3>
+<div class="chain">
+  <span class="n">Sony DCR-PC115E<br><small>CAMERA или VCR</small></span><span class="a">→</span>
+  <span class="n">ASFWDriver<br><small>изохронный канал 63</small></span><span class="a">→</span>
+  <span class="n">кольцо DIF<br><small>480 Б × 8192</small></span><span class="a">→</span>
+  <span class="n">декодер + звук<br><small>144 000 Б на кадр</small></span>
+</div>
+<div class="chain">
+  <span class="n">видео → Syphon<br><small>1024×576 или 768×576</small></span><span class="a">→</span>
+  <span class="n">OBS<br><small>источники сцены</small></span><span class="a">→</span>
+  <span class="n">OBS Virtual Camera<br><small>1920×1080@60</small></span><span class="a">→</span>
+  <span class="n">Chrome / Zoom / Meet</span>
+</div>
+<div class="chain">
+  <span class="n">звук → BlackHole 2ch<br><small>микрофон для приложений</small></span><span class="a">→</span>
+  <span class="n">OBS / Chrome</span>
+</div>
+
+<h3>5.2 Что реализовано</h3>
+<table>
+<thead><tr><th>Компонент</th><th>Файлы</th><th>Состояние</th></tr></thead>
+<tbody>
+<tr><td>Захват DV в драйвере</td><td class="n">ASFWDriver/Isoch/Receive/DVCaptureSink</td><td>работает, кольцо в разделяемой памяти</td></tr>
+<tr><td>Сборка кадра из DIF-чанков</td><td class="n">DVLive/DVFrameAssembler.swift</td><td>только кадры точного размера</td></tr>
+<tr><td>Декод видео</td><td class="n">DVLive/DVDecoder.swift</td><td>VideoToolbox, PAL и NTSC</td></tr>
+<tr><td>Деинтерлейс</td><td class="n">DVLive/DVDeinterlacer.swift</td><td>bob по нижнему полю → 50p</td></tr>
+<tr><td>Публикация видео</td><td class="n">DVLive/SyphonOutput.swift</td><td>Syphon, кадр растянут до квадратного пикселя</td></tr>
+<tr><td>Геометрия кадра</td><td class="n">DVLive/DVFrameGeometry.swift</td><td>4:3 и 16:9WIDE, vImage</td></tr>
+<tr><td>Звук из DV</td><td class="n">DVLive/DVAudioExtractor.swift</td><td>16 бит и 12 бит, сверено с FFmpeg</td></tr>
+<tr><td>Вывод звука</td><td class="n">DVLive/DVAudioExtractor.swift (DVAudioPlayer)</td><td>приёмник по имени, по умолчанию BlackHole</td></tr>
+<tr><td>Публикация камеры системе</td><td class="n">ASFWCamera/</td><td><b>не активируется</b> из-за подписи, см. 5.8</td></tr>
+<tr><td>Ярлык «всё сразу»</td><td class="n">scripts/minidv-live/</td><td>работает, см. 5.5</td></tr>
+</tbody>
+</table>
+
+<h3>5.3 Звук: он уже лежит внутри DV-потока</h3>
+<p>Отдельного аудиопути не нужно: в каждом кадре DV 12 DIF-последовательностей, в каждой 9 аудиоблоков,
+и звук жёстко привязан к кадру. Отсюда важное следствие — <b>звук и видео синхронны по построению</b>,
+и синхронность не надо восстанавливать: 48 кГц — 1920 сэмплов на канал на кадр, 32 кГц — 1280,
+44,1 кГц — 1764.</p>
+<div class="kv">
+<div>16 бит линейный</div><div>режим <code>AUDIO MODE → 16BIT</code> (48 кГц, одна стереопара)</div>
+<div>12 бит нелинейный</div><div>режим <code>AUDIO MODE → 12BIT</code> (32 кГц, две стереопары; разбирается первая, ST1)</div>
+<div>Приёмник по умолчанию</div><div><b>BlackHole 2ch</b> — тогда любое приложение видит звук с камкордера как микрофон, а системный вывод остаётся свободным</div>
+<div>Стоимость разбора</div><div>3,5 мкс на кадр при <code>-O</code> (0,009 % бюджета 40 мс)</div>
+</div>
+<p><b>Проверено.</b> 16 бит/48 кГц — 250 кадров, побитовое совпадение с FFmpeg (480 000 сэмплов, max|d| = 0);
+12 бит/32 кГц — тоже побитово (1280 сэмплов на канал, сверка с первым аудиопотоком FFmpeg); офлайн-рендер
+графа AVAudioEngine — побитово. Живой прогон в устройство: 50 буферов из 50, потерь 0.</p>
+<pre># что вообще есть в системе
+/Applications/ASFW.app/Contents/MacOS/ASFW --list-audio-devices
+
+# тон 1 кГц слева / 3 кГц справа прямо в приёмник
+/Applications/ASFW.app/Contents/MacOS/ASFW --audio-selftest 3
+
+# прогон .dv через боевой путь в темпе 25 к/с + дамп PCM для сверки
+/Applications/ASFW.app/Contents/MacOS/ASFW --dv-audio-selftest test48.dv --pcm-out out.pcm
+
+# тот же граф офлайн-рендером (сверка с FFmpeg)
+/Applications/ASFW.app/Contents/MacOS/ASFW --audio-render-selftest test48.dv --pcm-out render.pcm</pre>
+<p><small>Установка приёмника: <code>brew install --cask blackhole-2ch</code> (нужен пароль администратора).
+Другой приёмник задаётся флагом <code>--audio-device &lt;имя или UID&gt;</code>, выключить звук — <code>--no-audio</code>.</small></p>
+
+<h3>5.4 Геометрия: почему картинка была сжата</h3>
+<p>В DV пиксель неквадратный, а <code>16:9WIDE</code> у Sony — <b>анаморфная запись</b>: мануал DCR-PC115E (стр. 59)
+прямо говорит «the picture … is compressed in the widthwise direction». Показывать кадр надо так:</p>
+<table>
+<thead><tr><th>Режим камеры</th><th>PAR</th><th>Квадратный пиксель</th><th>Признак в кадре</th></tr></thead>
+<tbody>
+<tr><td>4:3</td><td class="n">16:15</td><td class="n">768×576</td><td class="n">код аспекта 0</td></tr>
+<tr><td>16:9WIDE</td><td class="n">64:45</td><td class="n">1024×576</td><td class="n">код аспекта 2</td></tr>
+</tbody>
+</table>
+<p>Признак лежит в VAUX Video Control пакете (тег <code>0x61</code>, позиции чередуются между DIF-последовательностями),
+условие то же, что в FFmpeg: <code>(vsc[2] &amp; 7) == 2 || (!apt &amp;&amp; (vsc[2] &amp; 7) == 7)</code>.</p>
+<div class="card mid">
+<b>Что было не так.</b> Живой путь отдавал кадр 720×576 как квадратный пиксель, то есть 5:4.
+Замер по записи OBS: содержимое занимало <b>1344×1075 = 5:4</b> вместо 16:9 — картинка была сжата по ширине
+примерно на 42 %. Syphon pixel aspect ratio не передаёт вовсе, поэтому растягивать приходится нам:
+кадр уходит в Syphon уже с квадратным пикселем, и OBS не надо ничего настраивать.
+</div>
+<pre># проверка без камеры: режим, растяжка и PNG на выходе
+/Applications/ASFW.app/Contents/MacOS/ASFW --dv-frame-selftest wide.dv --png wide.png
+# → режим кадра: 16:9 (анаморфно); извлечено 720×576 → 1024×576</pre>
+<p><small>Тестовые потоки генерируются FFmpeg: <code>-f dv</code> с <code>-aspect 16:9</code> даёт анаморфный 16:9
+(SAR 64:45), без него — обычный 4:3 (SAR 16:15).</small></p>
+
+<h3>5.5 Ярлык MiniDV Live: один клик</h3>
+<p>Двойной клик — и поднимается всё. Ярлык лежит в <code>/Applications/MiniDV Live.app</code>, исходники —
+<code>scripts/minidv-live/</code> (обычный bash + помощник на node), переустановка — <code>./install.sh</code>.</p>
+<ol>
+<li>проверяет, что драйвер ASFW загружен и BlackHole установлен;</li>
+<li>останавливает прошлый живой захват (иначе два процесса дерутся за одно кольцо драйвера) и поднимает новый;</li>
+<li>открывает OBS и через <b>obs-websocket</b> приводит сцену к рабочему виду: источник
+<code>Sony DCR-PC115E</code> (тип <code>syphon-input</code>), звуковой вход <code>BlackHole 2ch</code>,
+видео вписано в канву;</li>
+<li>включает виртуальную камеру (<code>StartVirtualCam</code>) — без этого браузер видит устройство, но кадров не получает.</li>
+</ol>
+<p>Лог: <code>~/Library/Logs/MiniDVLive.log</code>. Отладка без окон:
+<code>MINIDV_NO_DIALOG=1 "/Applications/MiniDV Live.app/Contents/MacOS/MiniDVLive"</code>.</p>
+
+<h3>5.6 OBS: сцена, виртуальная камера и одна ловушка</h3>
+<ul>
+<li>Видео: источник <b>Syphon Client</b> → сервер <code>Sony DCR-PC115E</code>. Сервер выбирается по <code>uuid</code>,
+а когда uuid сменился (новый запуск ASFW) — по паре <code>name</code> + <code>app_name</code>. Ярлык прописывает все три поля
+на каждом запуске: с пустыми настройками (так создаётся источник по умолчанию) он остаётся чёрным.</li>
+<li>Звук: источник <b>Audio Input Capture</b> → устройство <code>BlackHole 2ch</code>.</li>
+<li>Канва 1920×1080: кадр 1024×576 — ровно 16:9, поэтому ложится без полей и без искажений.</li>
+<li>Виртуальная камера включается кнопкой <b>Start Virtual Camera</b> (ярлык делает это сам).</li>
+</ul>
+<div class="card bad">
+<b>Ловушка.</b> <code>OBS Virtual Camera</code> — системное расширение, и оно <b>всегда</b> перечисляется
+в списке камер приложений, даже когда OBS закрыт. Кадры при этом не идут, пока не активен выход виртуальной
+камеры. Отсюда классическая жалоба «камера в списке есть, но картинки нет» — сначала <b>Start Virtual Camera</b>,
+и только потом выбирать её в браузере. Второе: расширение объявляет <b>единственный формат 1920×1080@60</b>,
+поэтому если приложение требует ровно 30 к/с — будет отказ (см. тестовую страницу в 5.7).
+</div>
+
+<h3>5.7 Браузер: Chrome и другие</h3>
+<p>Разрешения нужны на двух уровнях: macOS (Настройки → Конфиденциальность → Камера/Микрофон) и сам сайт
+(иконка камеры в адресной строке). В нашем случае у Chrome оба разрешения выданы, а проблема была
+в выключенной виртуальной камере.</p>
+<p>Для быстрой диагностики есть страница <code>camera-test.html</code> (запускается через локальный сервер
+скриптом <code>camera-test.command</code> — на <code>file://</code> Chrome иногда не даёт доступ к камере).
+Она показывает список устройств, превью, negotiated-формат и точную ошибку
+(<code>NotAllowedError</code>, <code>NotReadableError</code>, <code>OverconstrainedError</code>), плюс
+отдельные кнопки с <code>frameRate</code> ideal/ровно 30/ровно 60. Полезное рядом:
+<code>chrome://media-internals</code> — покажет, какой формат запрошен и на чём споткнулся.</p>
+
+<h3>5.8 Что осталось</h3>
+<table>
+<thead><tr><th>Не сделано</th><th>Почему и что нужно</th></tr></thead>
+<tbody>
+<tr><td>Камера как системное устройство (CMIO)</td><td>Расширение <code>ASFWCamera</code> написано и публикует «Sony DCR-PC115E», но не активируется: <code>OSSystemExtensionError.validationFailed (9)</code>. Сборка ad-hoc, Team ID нет, а камера-расширение требует нормальной подписи (Developer ID/Development + совпадающий Mach-service). Живой режим поэтому идёт через Syphon → OBS → OBS Virtual Camera.</td></tr>
+<tr><td>Вторая звуковая пара (ST2) в 12-битном режиме</td><td>Разбирается только ST1 (микрофон). ST2 обычно пуста, но для полноты можно публиковать вторым потоком.</td></tr>
+<tr><td>Общий таймлайн и метрика дрейфа</td><td>Синхронность держится на покадровом приходе (DV кадрово-синхронный), отдельного общего времени и счётчика расхождения пока нет.</td></tr>
+<tr><td>Восстановление после bus reset</td><td>Watchdog есть у Syphon-раннера (перезапуск при остановке потока), обработки выдёргивания кабеля и переключения CAMERA↔VCR нет.</td></tr>
+<tr><td>Gap count 44 при оптимальном 5</td><td>Драйвер не претендует на роль Bus Manager. На нашем захвате не мешало, но на длинных сессиях стоит вернуться.</td></tr>
+<tr><td>NTSC и DVCPRO50</td><td>Извлекатель звука рассчитан на PAL 625/50 (144 000 Б), для NTSC нужны 120 000 Б и таблица <code>dv_audio_shuffle525</code>.</td></tr>
+<tr><td>Только macOS</td><td>Ярлык и диагностика — macOS-специфичные; сам драйвер тоже (DriverKit).</td></tr>
+</tbody>
+</table>
+
+<div class="card info">
+<b>Чего мы не измеряли.</b> Сквозную задержку «камера → браузер» и потери на длинных сессиях.
+По частям: разбор звука 3,5 мкс/кадр, буферы по 20 мс, BlackHole добавляет буфер устройства,
+OBS Virtual Camera объявляет 1080p60. Если будете мерить — интересны кадры на длинной дистанции
+и поведение после bus reset.
+</div>
+
+<!-- ═══════════════════════════════ 6 ═══════════════════════════════ -->
+<h2>6. Состояние системы, обслуживание и откат</h2>
+
+<h3>Каким должно быть рабочее состояние</h3>
+<div class="card mid">
+<div class="kv">
+<div>SIP</div><div><b>Отключён</b> (<code>csrutil disable</code> из Recovery). Сборка ad-hoc-подписанная, без нотаризации — иначе AMFI её не запустит.</div>
+<div>Developer mode</div><div><b>Включён</b> (<code>sudo systemextensionsctl developer on</code>).</div>
+<div>Драйвер</div><div><code>net.mrmidi.ASFW.ASFWDriver (0.2.0/2)</code> в состоянии <code>[activated enabled]</code>.</div>
+<div>Камера-расширение</div><div>Обычно <b>не активировано</b> — это нормально, живой режим идёт мимо него (см. 5.8).</div>
+<div>obs-websocket</div><div><b>Включён</b> ярлыком (<code>server_enabled: true</code>), слушает только <code>127.0.0.1:4455</code> с вашим паролем.</div>
+<div>Диск</div><div>Оцифровка требует ~13 ГБ на час ленты; живой режим места не требует.</div>
+</div>
+</div>
+
+<h3>Как остановить живой режим</h3>
+<pre>pkill -f -- "--syphon"          # выключить камеру и звук
+# в OBS: Stop Virtual Camera; в браузере устройства исчезнут сами</pre>
+
+<h3>Откат ярлыка и obs-websocket</h3>
+<pre>rm -rf "/Applications/MiniDV Live.app"
+# WebSocket: OBS → Tools → WebSocket Server Settings → снять Enable
+#   либо вернуть конфиг из бэкапа, который ярлык сделал сам:
+#   ~/Library/Application Support/obs-studio/plugin_config/obs-websocket/config.json.bak-minidv</pre>
+
+<h3>Полный откат драйвера</h3>
+<p>Порядок обратный установке и <b>его нельзя нарушать</b>:</p>
+<pre>pkill -f -- "--syphon"
+systemextensionsctl uninstall - net.mrmidi.ASFW.ASFWDriver
+systemextensionsctl list                 # убедиться, что записи нет
+sudo systemextensionsctl developer off</pre>
+<p>И только потом Recovery → <code>csrutil enable</code> → перезагрузка.</p>
+<div class="card bad">
+<b>Почему порядок важен.</b> С включённым SIP система откажется запускать ad-hoc-подписанный dext.
+Если расширение осталось установленным, при каждом старте остаётся осиротевший kernel-stub.
+В сборках со SCSI HBA это приводит к панике в бут-луп. Аварийный выход: Recovery →
+<code>csrutil disable</code> → загрузиться → снять расширение → Recovery → <code>csrutil enable</code>.
+</div>
+
+<h3>Что сохранить на будущее</h3>
+<ul>
+<li>Каталог <code>~/Developer/ASFireWire</code> с правками — <code>git diff</code> (в репозитории инструкций лежит готовый патч-сет).</li>
+<li>Собранный <code>ASFW.app</code> — ad-hoc-подпись не привязана к машине, тот же бандл поставится на любой Mac с выключенным SIP.</li>
+<li>Отчёт диагностики из вкладки <b>1394 Diagnostics</b> — GUID, топология, скорости, трасса транзакций.</li>
+<li>Исходники ярлыка — <code>scripts/minidv-live/</code>; пересобрать: <code>./install.sh</code>.</li>
+<li>Этот документ.</li>
+</ul>
+
+<!-- ═══════════════════════════════ 7 ═══════════════════════════════ -->
+<h2>7. Шпаргалка</h2>
+
+<h4>Живой режим — одной командой</h4>
+<pre>open -a "MiniDV Live"                                   # ярлык: камера + звук + OBS + виртуалка
+MINIDV_NO_DIALOG=1 "/Applications/MiniDV Live.app/Contents/MacOS/MiniDVLive"   # без окон, для отладки
+tail -f ~/Library/Logs/MiniDVLive.log                   # что происходит</pre>
+
+<h4>Состояние системы</h4>
+<pre>csrutil status
+systemextensionsctl list
+ioreg -p IOService -w0 | grep -i "11c1"
+ioreg -p IOService -w0 -l -r -n "pci11c1,5901" -d 2 | grep -Ei "ASFWDriver|IOUserServerCDHash"</pre>
+
+<h4>Звук</h4>
+<pre>/Applications/ASFW.app/Contents/MacOS/ASFW --list-audio-devices
+/Applications/ASFW.app/Contents/MacOS/ASFW --audio-selftest 3
+/Applications/ASFW.app/Contents/MacOS/ASFW --dv-audio-selftest test48.dv --pcm-out out.pcm
+/Applications/ASFW.app/Contents/MacOS/ASFW --audio-render-selftest test48.dv --pcm-out render.pcm</pre>
+
+<h4>Геометрия кадра</h4>
+<pre>/Applications/ASFW.app/Contents/MacOS/ASFW --dv-frame-selftest wide.dv --png wide.png
+
+# тестовые потоки: 4:3 и анаморфный 16:9
+ffmpeg -y -f lavfi -i "testsrc2=size=720x576:rate=25" -c:v dvvideo -pix_fmt yuv420p -r 25 -t 2 -f dv four3.dv
+ffmpeg -y -f lavfi -i "testsrc2=size=720x576:rate=25" -c:v dvvideo -pix_fmt yuv420p -r 25 -aspect 16:9 -t 2 -f dv wide.dv</pre>
+
+<h4>OBS: что видит сам OBS</h4>
+<pre># статус виртуальной камеры и источника (нужен node и включённый obs-websocket)
+node scripts/minidv-live/obs-sources.js        # привести сцену к рабочему виду
+# в логе скрипта: outputActive, videoActive, videoShowing, список источников</pre>
+
+<h4>Логи драйвера и приложения</h4>
+<pre>log stream --style compact --predicate 'processImagePath CONTAINS[c] "ASFWDriver"
+ OR eventMessage CONTAINS[c] "[Discovery]" OR eventMessage CONTAINS[c] "[Async]"
+ OR eventMessage CONTAINS[c] "[AVC]" OR eventMessage CONTAINS[c] "[Isoch]"'
+
+log show --last 10m --style compact --predicate 'subsystem CONTAINS "DVLive"' | tail -40
+sudo log collect --last 10m --output ~/Desktop/asfw.logarchive</pre>
+
+<h4>Пересборка после правки</h4>
+<pre>cd ~/Developer/ASFireWire
+./build.sh --config Release --no-bump &amp;&amp; ./sign.sh
+systemextensionsctl uninstall - net.mrmidi.ASFW.ASFWDriver
+rm -rf /Applications/ASFW.app
+cp -R build/DerivedData/Build/Products/Release/ASFW.app /Applications/
+open /Applications/ASFW.app      # ⌘I → одобрить → перезагрузиться</pre>
+
+<h4>Оцифровка ленты и проверка файла</h4>
+<pre>python3 -c "import os,sys;s=os.path.getsize(sys.argv[1]);print(s,'bytes |',s/144000,'frames | remainder',s%144000)" tape.dv
+ffprobe -hide_banner tape.dv
+ffmpeg -hide_banner -i tape.dv -map 0:a:1 -af volumedetect -f null - 2&gt;&amp;1 | grep mean_volume</pre>
+
+<h4>Транскод</h4>
+<pre># монтажный мастер
+ffmpeg -i tape.dv -map 0 -c:v prores_ks -profile:v 3 -vf "setfield=bff" -c:a pcm_s16le tape_prores.mov
+
+# просмотр
+ffmpeg -i tape.dv -filter_complex "[0:v]bwdif=mode=send_field:parity=bff,scale=768:576:flags=lanczos,setsar=1[v]" \
+  -map "[v]" -map 0:a:0 -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p -c:a aac -b:a 192k tape_view.mp4</pre>
+
+<h4>Полезное во время сессии</h4>
+<pre>caffeinate -d -i        # не давать Mac уснуть
+df -h ~                 # 13 ГБ на час ленты</pre>
+
+<div class="foot">
+<b>Источники и ссылки.</b>
+<a href="https://github.com/mrmidi/ASFireWire">ASFireWire</a> ·
+<a href="https://forums.macrumors.com/threads/firewire-stack-re-write.2471726/">Тред разработки на MacRumors</a> ·
+<a href="https://tidbits.com/2025/09/19/support-for-firewire-removed-from-macos-26-tahoe/">TidBITS: FireWire удалён из macOS 26</a> ·
+<a href="https://derflounder.wordpress.com/2025/09/15/firewire-support-removed-from-macos-tahoe/">Der Flounder: что исчезло</a> ·
+<a href="https://mipops.github.io/dvrescue/">DVRescue</a> ·
+<a href="https://github.com/xingrz/tapecap">tapecap (macOS 11–15)</a> ·
+<a href="https://developer.apple.com/documentation/coremediaio">Apple: Core Media I/O</a> ·
+<a href="https://developer.apple.com/documentation/driverkit/debugging-and-testing-system-extensions">Apple: отладка system extensions</a> ·
+<a href="https://syphon.github.io/">Syphon</a> ·
+<a href="https://existential.audio/blackhole/">BlackHole</a> ·
+<a href="https://github.com/obsproject/obs-websocket">obs-websocket</a> ·
+<a href="https://obsproject.com/kb/virtual-camera-troubleshooting">OBS: virtual camera troubleshooting</a> ·
+<a href="https://devicehunt.com/view/type/pci/vendor/11C1/device/5901">PCI 11C1:5901 — LSI FW643</a>
+<br><br>
+Обновлено 4 октября 2026 года: добавлены живой звук через DV, геометрия 4:3/16:9WIDE, ярлык запуска
+и работа с виртуальной камерой в браузере. ASFireWire активно развивается — перед возвратом к проекту
+сверьтесь с актуальным состоянием репозитория: часть описанных багов может быть уже исправлена в upstream.
+</div>
+
+</div></body></html>

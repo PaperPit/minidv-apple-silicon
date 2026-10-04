@@ -1,0 +1,31 @@
+MiniDV on macOS 26 — live capture and bit-exact archival
+Copyright 2026 Alexey Lustin (GitHub: PaperPit)
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------
+This work builds on ASFireWire
+    https://github.com/mrmidi/ASFireWire
+    Copyright its contributors, licensed under the Apache License, Version 2.0.
+
+The patch set in patches/ applies to ASFireWire and contains modifications
+derived from it (FireWire driver, application and camera extension sources
+remain under the Apache License, Version 2.0).
+
+--------------------------------------------------------------------------
+Third-party components referenced by this project (not redistributed here):
+
+  Syphon              https://syphon.github.io/
+                      frame sharing with OBS; the built framework is expected
+                      in ASFireWire/Vendor/Syphon.framework and is not part of
+                      the patch set.
+
+  BlackHole           https://existential.audio/blackhole/
+                      virtual audio device (GPL-3.0), installed separately.
+
+  OBS Studio /        https://github.com/obsproject/obs-websocket/
+  obs-websocket       used by the launcher to configure the scene (GPL-2.0).
+
+  FFmpeg              https://ffmpeg.org/
+                      reference decoder used to verify audio and frame
+                      geometry, and to generate test DV streams.

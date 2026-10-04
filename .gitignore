@@ -5,3 +5,8 @@ DerivedData/
 *.dv
 *.mov
 *.mp4
+*.xcresult
+*.dSYM
+*.bak-minidv
+*.log
+docs/.jekyll-cache/

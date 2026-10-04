@@ -1,3 +1,7 @@
+> **Обновление 4 октября 2026.** Разбор ниже сделан в июле. Баг 1 (скорость ответов S100) исправлен —
+> фикс входит в [`../patches/asfw-minidv-live.patch`](../patches/asfw-minidv-live.patch);
+> актуальное состояние, включая живой режим, — в [гайде](guide.ru.html), раздел 3.
+
 # Баги ASFireWire, найденные при работе с камкордером
 
 Конфигурация: ASFireWire commit `9055449` (VERSION 0.2.0-audio), MacBook Air M1

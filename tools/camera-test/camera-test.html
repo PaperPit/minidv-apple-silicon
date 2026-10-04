@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка камеры и микрофона</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --tx:#e6e8ee; --dim:#a0a7b4; --acc:#6aa8ff; --ok:#4ec98a; --bad:#f0685f; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:28px; background:var(--bg); color:var(--tx);
+         font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif; }
+  h1 { font-size:22px; margin:0 0 6px; }
+  h2 { font-size:15px; margin:26px 0 8px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; }
+  p.hint { color:var(--dim); margin:0 0 18px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; }
+  select, button { background:var(--panel); color:var(--tx); border:1px solid var(--line);
+                   border-radius:9px; padding:9px 12px; font:inherit; }
+  button { cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  button.primary { background:var(--acc); color:#0b1220; border-color:var(--acc); font-weight:600; }
+  video { width:min(720px,100%); background:#000; border:1px solid var(--line); border-radius:12px; display:block; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px;
+        white-space:pre-wrap; word-break:break-word; font-size:13px;
+        font-family:ui-monospace,SFMono-Regular,Menlo,monospace; max-height:340px; overflow:auto; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .dim { color:var(--dim); }
+</style>
+</head>
+<body>
+<h1>Проверка камеры и микрофона в браузере</h1>
+<p class="hint">Выберите камеру <b>OBS Virtual Camera</b> и микрофон <b>BlackHole 2ch</b>, затем нажмите «Запустить».
+Если картинки нет — нажмите проверки частоты кадров ниже: они покажут точную причину отказа.</p>
+
+<div class="row">
+  <select id="camera" style="min-width:280px"></select>
+  <select id="microphone" style="min-width:280px"></select>
+  <button id="start" class="primary">Запустить</button>
+  <button id="stop">Стоп</button>
+</div>
+
+<video id="preview" autoplay playsinline muted></video>
+
+<h2>Результат</h2>
+<pre id="log">—</pre>
+
+<h2>Проверки частоты кадров (для диагностики)</h2>
+<div class="row">
+  <button data-test="plain">Как есть (без ограничений)</button>
+  <button data-test="ideal30">frameRate ideal 30</button>
+  <button data-test="exact30">frameRate ровно 30</button>
+  <button data-test="exact60">frameRate ровно 60</button>
+</div>
+
+<script>
+const logBox = document.getElementById('log');
+const preview = document.getElementById('preview');
+const cameraSelect = document.getElementById('camera');
+const micSelect = document.getElementById('microphone');
+let stream = null;
+
+function log(line, cls) {
+  const time = new Date().toLocaleTimeString('ru-RU');
+  const text = `[${time}] ${line}`;
+  logBox.innerHTML += (logBox.textContent === '—' ? '' : '\n') +
+    (cls ? `<span class="${cls}">${text}</span>` : text);
+  logBox.textContent = logBox.textContent.replace(/^—\n?/, '');
+  logBox.scrollTop = logBox.scrollHeight;
+}
+logBox.textContent = '';
+
+async function refreshDevices() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const fill = (select, kind, preferred, fallback) => {
+    const items = devices.filter((d) => d.kind === kind);
+    select.innerHTML = '';
+    if (!items.length) {
+      select.append(new Option('— не найдено —', ''));
+      return;
+    }
+    items.forEach((d) => {
+      const label = d.label || '(без имени — разрешите доступ)';
+      select.append(new Option(label, d.deviceId));
+    });
+    const pick = items.find((d) => preferred.test(d.label)) || items.find((d) => fallback.test(d.label)) || items[0];
+    if (pick) select.value = pick.deviceId;
+  };
+  fill(cameraSelect, 'videoinput', /OBS Virtual Camera/i, /./);
+  fill(micSelect, 'audioinput', /BlackHole/i, /./);
+
+  const cams = devices.filter((d) => d.kind === 'videoinput').map((d) => d.label || '(без имени)');
+  const mics = devices.filter((d) => d.kind === 'audioinput').map((d) => d.label || '(без имени)');
+  log('камеры: ' + (cams.join(', ') || 'нет'));
+  log('микрофоны: ' + (mics.join(', ') || 'нет'));
+}
+
+function stopStream() {
+  if (stream) {
+    stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    preview.srcObject = null;
+  }
+}
+
+async function tryStream(label, constraints) {
+  stopStream();
+  log('— проверка: ' + label);
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    preview.srcObject = stream;
+    const video = stream.getVideoTracks()[0];
+    const audio = stream.getAudioTracks()[0];
+    if (video) {
+      const s = video.getSettings();
+      log(`  видео: ${video.label} — ${s.width}x${s.height} @ ${s.frameRate || '?'} к/с`, 'ok');
+    }
+    if (audio) log(`  звук: ${audio.label}`, 'ok');
+    log('  РЕЗУЛЬТАТ: поток получен', 'ok');
+    await refreshDevices();
+  } catch (error) {
+    log(`  ОШИБКА: ${error.name} — ${error.message}`, 'bad');
+    if (error.name === 'OverconstrainedError') {
+      log(`  устройство не поддерживает запрошенные ограничения (${error.constraint})`, 'bad');
+    }
+    if (error.name === 'NotAllowedError') {
+      log('  доступ запрещён: разрешите камеру/микрофон для этого сайта и в System Settings → Privacy & Security', 'bad');
+    }
+    if (error.name === 'NotReadableError' || error.name === 'AbortError') {
+      log('  устройство занято или не отдаёт кадры: проверьте, что в OBS нажата «Start Virtual Camera»', 'bad');
+    }
+  }
+}
+
+document.getElementById('start').onclick = () => tryStream('выбранные устройства', {
+  video: { deviceId: cameraSelect.value ? { exact: cameraSelect.value } : undefined },
+  audio: micSelect.value ? { deviceId: { exact: micSelect.value } } : true,
+});
+document.getElementById('stop').onclick = () => { stopStream(); log('остановлено'); };
+
+document.querySelectorAll('button[data-test]').forEach((button) => {
+  button.onclick = () => {
+    const mode = button.dataset.test;
+    const camera = cameraSelect.value ? { deviceId: { exact: cameraSelect.value } } : {};
+    const audio = micSelect.value ? { deviceId: { exact: micSelect.value } } : true;
+    let video = { ...camera };
+    if (mode === 'ideal30') video.frameRate = { ideal: 30 };
+    if (mode === 'exact30') video.frameRate = { exact: 30 };
+    if (mode === 'exact60') video.frameRate = { exact: 60 };
+    tryStream(button.textContent.trim(), { video, audio });
+  };
+});
+
+navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
+refreshDevices().catch((e) => log('не удалось перечислить устройства: ' + e.message, 'bad'));
+</script>
+</body>
+</html>

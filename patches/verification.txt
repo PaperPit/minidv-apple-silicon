@@ -1,0 +1,25 @@
+Проверка патча asfw-minidv-live.patch
+Дата: 2026-10-04 09:26
+
+1. Размер и состав
+   размер: 273111 байт
+   файлов в патче: 39
+   новых файлов:   28
+   бинарных вставок: 0
+
+2. Применение на чистом клоне ASFireWire
+   коммит: 9055449 Merge pull request #79 from mrmidi/codex/research-stream-stability
+   git apply --check: без ошибок
+   применён
+   изменённых файлов: 11
+   новых записей:     8 (каталоги схлопнуты git status)
+
+3. Ключевые файлы на месте
+   ✔ DVLive/DVFrameGeometry.swift
+   ✔ DVLive/DVAudioSupport.swift
+   ✔ scripts/minidv-live/install.sh
+   ✔ ASFWCamera/ASFWCameraProvider.swift
+
+4. Фикс скорости ответов в драйвере
+   34:constexpr uint8_t kSpeedS400 = 0x00;  // TEMP: S100 responses for S100-only devices
+   42:           (static_cast<uint32_t>(kSpeedS400 & 0x07) << 16) |

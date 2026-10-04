@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Живой MiniDV на macOS 26 (Apple Silicon) — Sony DCR-PC115E по FireWire/i.LINK: видео и звук в реальном времени</title>
+<meta name="description" content="Как вернуть FireWire на macOS 26 Tahoe: побитовая оцифровка MiniDV-лент и живая камера со звуком в OBS, Chrome и Zoom на Apple Silicon. Sony DCR-PC115E, i.LINK, DriverKit, BlackHole, Syphon.">
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--line:#2a2f3a;--tx:#e6e8ee;--dim:#a0a7b4;--acc:#6aa8ff;--ok:#4ec98a}
+  @media (prefers-color-scheme: light){:root{--bg:#f6f7f9;--panel:#fff;--line:#dfe3ea;--tx:#151821;--dim:#5b6472;--acc:#1a63d8}}
+  *{box-sizing:border-box}
+  body{margin:0;padding:44px 20px 80px;background:var(--bg);color:var(--tx);
+       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+  .wrap{max-width:820px;margin:0 auto}
+  h1{font-size:30px;line-height:1.2;margin:0 0 10px;letter-spacing:-.02em}
+  .sub{color:var(--dim);margin:0 0 26px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+  a{color:var(--acc)}
+  ul{padding-left:20px} li{margin:6px 0}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;
+       background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .foot{color:var(--dim);font-size:13px;margin-top:34px;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Живой MiniDV на macOS 26 (Apple Silicon)</h1>
+<p class="sub">Sony DCR-PC115E по FireWire/i.LINK: побитовая оцифровка лент и камера со звуком
+в реальном времени — в OBS, Chrome, Zoom. На машине, из которой Apple удалила весь стек FireWire.</p>
+
+<div class="card">
+<b>Что здесь есть.</b>
+<ul>
+<li><a href="guide.ru.html">Полный гайд</a> — стек, установка драйвера, найденные баги, методика оцифровки,
+живой режим: звук, геометрия кадра, ярлык, браузер.</li>
+<li><a href="live-setup.md">Настройка живого режима</a> — флаги, диагностика без камеры, ограничения.</li>
+<li><a href="troubleshooting.md">Типичные проблемы</a> — симптом → что проверить.</li>
+<li><a href="https://github.com/PaperPit/minidv-apple-silicon">Репозиторий</a> — README (RU/EN), инструменты, патч к ASFireWire.</li>
+</ul>
+</div>
+
+<div class="grid">
+<div class="card">
+<b>Звук</b><br>
+Берётся прямо из DV-потока, без отдельного аудиокабеля: 16 бит/48 кГц и 12 бит/32 кГц,
+оба режима сверены с FFmpeg побитово. Приёмник — BlackHole, приложения видят звук с камеры
+как микрофон.
+</div>
+<div class="card">
+<b>Геометрия</b><br>
+<code>16:9WIDE</code> у Sony пишется анаморфно: без растяжки картинка выходит сжатой по ширине
+на 42 %. Правильно: 4:3 → 768×576, 16:9 → 1024×576. Проверка — <code>--dv-frame-selftest</code>.
+</div>
+</div>
+
+<div class="card">
+<b>Быстрые команды.</b>
+<ul>
+<li><code>--list-audio-devices</code>, <code>--audio-selftest 3</code> — звук без камеры;</li>
+<li><code>--dv-audio-selftest test48.dv --pcm-out out.pcm</code> — прогон .dv через боевой путь;</li>
+<li><code>--dv-frame-selftest wide.dv --png wide.png</code> — режим кадра и растяжка;</li>
+<li><code>MINIDV_NO_DIALOG=1 "/Applications/MiniDV Live.app/Contents/MacOS/MiniDVLive"</code> — живой режим без окон.</li>
+</ul>
+</div>
+
+<p class="foot">Apache License 2.0 · стоит на <a href="https://github.com/mrmidi/ASFireWire">ASFireWire</a>,
+<a href="https://syphon.github.io/">Syphon</a>, <a href="https://existential.audio/blackhole/">BlackHole</a>,
+<a href="https://github.com/obsproject/obs-websocket">obs-websocket</a>, <a href="https://ffmpeg.org/">FFmpeg</a>.</p>
+
+</div></body></html>
