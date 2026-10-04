@@ -671,6 +671,7 @@ sudo systemextensionsctl developer off   # если ещё включён
 | Источник Syphon чёрный | В свойствах не выбран сервер: после перезапуска ASFW меняется `uuid` | Выбрать `[ASFW] Sony DCR-PC115E`; ярлык прописывает `uuid`+`name`+`app_name` сам |
 | Звука нет в записи | Нет источника `BlackHole 2ch` или он в муте | Добавить Audio Input Capture → BlackHole 2ch, проверить микшер |
 | Много шума и эха в комнате | Встроенный микрофон камеры + голые стены | [docs/audio-cleanup.md](docs/audio-cleanup.md): петличка в MIC камеры, фильтры OBS, обработка FFmpeg |
+| Нужен плагин для живого звука | OBS на macOS грузит только VST2 и только arm64 | [docs/live-audio-plugins.md](docs/live-audio-plugins.md): что подойдёт, что нет, и как проверить за одну команду |
 
 ---
 
@@ -697,6 +698,7 @@ docs/guide.ru.html         полный гайд: стек, драйвер, ба
 docs/live-setup.md         живой режим: флаги, диагностика, ограничения
 docs/troubleshooting.md    типичные проблемы: симптом → что проверить
 docs/audio-cleanup.md      звук: как убрать шум комнаты, гул 50 Гц и эхо (OBS + FFmpeg)
+docs/live-audio-plugins.md  что за плагины ставить в лайве: ограничения OBS на macOS, три пути, проверка
 docs/asfirewire-bugs.md    разбор багов драйвера с трассами (июль 2026)
 patches/                   патч к ASFireWire + README + доказательство применения
 src/                       ключевые исходники живого пути (полный набор — в патче)
